@@ -1,0 +1,683 @@
+#include "main.h"
+#include "stm32f0xx_hal.h"
+#include "can.h"
+#include "i2c.h"
+#include "adc.h"
+#include "iwdg.h"
+#include "rtc.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
+#include "main_hal.h"
+#include "string.h"
+#include "stdbool.h"
+
+#define IN1 (1 << 0)	
+#define IN2 (1 << 1)
+#define IN3 (1 << 2)
+#define IN4 (1 << 3)
+#define IN5 (1 << 4)
+#define IN6 (1 << 5)
+#define IN7 (1 << 6)
+#define IN8 (1 << 7)
+#define IN9 (1 << 8)
+#define IN10 (1 <<9)
+typedef union {
+	uint32_t ID;
+	struct{
+		uint32_t SourceAddres: 8;
+		uint32_t ParameterGoupNumber: 18;
+		uint32_t actuatoraddres:8;
+		uint32_t Priority: 3;
+	} J1939IDTypeDefine;
+} J1939IDTypeDefine;
+
+typedef union {
+	uint16_t IDDIS;
+	struct{
+		uint16_t CanIDDIS:16;
+	
+	} J1939IDDISTypeDefine;
+}J1939IDDISTypeDefine;
+
+typedef union {
+	int8_t i8[8];
+	struct{
+		uint32_t Template:8;
+		uint32_t Parameter0:8;
+			int32_t  Parameter1:16;
+		uint32_t Parameter2:16;
+		uint32_t Parameter5:8;
+		uint32_t Parameter6:8;
+
+	}DMA20ControlMessageTypeDef;
+}DMA20ControlMessageTypeDef;
+
+
+typedef union {
+	int8_t i8[8];
+  struct {
+		uint32_t 	measuredPosition 		:14;
+		uint32_t 	measuredCurrent  		:9;
+		uint32_t 	runningSpeed     		:5;
+		uint32_t 	voltageError				:2;
+		uint32_t 	tempreratureError		:2;
+		uint32_t 	motionFlag					:1;
+		uint32_t 	backdriveFlag				:1;
+		uint32_t 	parmeterFlag				:1;
+		uint32_t 	saturationFlag			:1;
+		uint32_t 	fatalErrorFlag			:1;
+  }acturatorFeedbackMessageTypeDef;
+}acturatorFeedbackMessageTypeDef;
+typedef union {
+	int8_t i8[8];
+	struct {
+		uint32_t TemplateDMA:8;
+		uint32_t Up40Down80Esc20:8;
+		uint32_t OK01:8;
+		uint32_t Reserve1:8;
+	uint32_t Reserve2:8;
+	uint32_t Reserve3:8;
+	uint32_t Reserve4:8;
+	}DMAFeedbackMessageTypeDef;
+}DMAFeedbackMessageTypeDef;
+	
+typedef	union {
+	int8_t i8[8];
+	struct {
+		uint32_t 	positionCommand				:14;
+		uint32_t 	currentLimit					:9;
+		uint32_t		speedCommand				:5;
+		uint32_t		motionEnable				:1;
+	} actuatorControlMessageTypeDef;
+} actuatorControlMessageTypeDef;
+
+typedef	union {
+	uint32_t u32[2];
+	uint16_t u16[4];
+	uint8_t u8[8];
+	int32_t i32[2];
+	int16_t i16[4];
+	int8_t i8[8];
+} CANMessagePackageType;
+
+CanTxMsgTypeDef CAN_TX_Msg;
+CanRxMsgTypeDef CAN_RX_Msg;
+__IO uint16_t u16Timer = 0;
+uint8_t u8Data[16];
+__IO uint16_t u1Timer = 0;
+//actuator SBrudder
+volatile uint8_t runningSpeedSBR;
+volatile uint16_t PositionSBR;
+volatile uint16_t MoveSBR;
+volatile uint16_t HuidigePositieSBR;
+volatile uint32_t TackPositieSBR;
+volatile uint32_t SpeedSBR;
+volatile uint32_t MotionFlagSBR;
+volatile uint16_t SBR;
+volatile uint32_t SlowModeSBR;
+volatile uint32_t SlowPositieSBR;
+//actuator BBrudder
+volatile uint8_t runningSpeedBBR;
+volatile uint16_t PositionBBR;
+volatile uint16_t MoveBBR;
+volatile uint16_t HuidigePositieBBR;
+volatile uint32_t TackPositieBBR;
+volatile uint32_t SpeedBBR;
+volatile uint32_t MotionFlagBBR;
+volatile uint16_t BBR;
+volatile uint32_t SlowModeBBR;
+volatile uint32_t SlowPositieBBR;
+//actuator SBmain
+
+volatile uint16_t PositionSBM;
+volatile uint16_t MoveSBM;
+volatile uint32_t HuidigePositieSBM;
+volatile uint32_t TackPositieSBM;
+volatile uint32_t SpeedSBM;
+volatile uint32_t MotionFlagSBM;
+volatile uint8_t SBM;
+
+//actuator BBmain
+
+
+volatile uint16_t PositionBBM;
+volatile uint16_t MoveBBM;
+volatile uint32_t HuidigePositieBBM;
+volatile uint32_t TackPositieBBM;
+volatile uint32_t SpeedBBM;
+volatile uint32_t MotionFlagBBM;
+volatile uint8_t BBM;
+
+//TACKFUNCTION
+volatile uint32_t SlowModeBBR1;
+volatile uint32_t SlowModeBBR2;
+volatile uint32_t SlowModeSBR1;
+volatile uint32_t SlowModeSBR2;
+
+volatile uint8_t D;
+volatile uint8_t C;
+volatile uint8_t B;
+volatile uint32_t A;
+volatile acturatorFeedbackMessageTypeDef actuatorSBRStatus;
+volatile acturatorFeedbackMessageTypeDef actuatorBBRStatus;
+volatile DMAFeedbackMessageTypeDef DMAStatus;
+volatile uint32_t DMAOK;
+volatile uint32_t DMAbuttons;
+volatile uint32_t tack1;
+volatile uint32_t tack2;
+volatile uint32_t tackpositie1;
+volatile uint32_t tackpositie2;
+volatile uint32_t tacksaveR;
+volatile uint32_t tacksaveM;
+volatile uint32_t adcValue;
+volatile uint32_t IN1A;
+volatile uint32_t Buttonstate ;
+volatile 		uint32_t u8Wr, u8Rd;
+
+uint32_t mainReadButtons(void);
+void SystemClock_Config(void);
+void Error_Handler(void);
+void CANzenderBBR (void);
+void CANzenderSBR (void);
+void CANzenderDIS (void);
+//void CANzenderBBM (void);
+//void CANzenderSBM (void);
+void Buttons (void);
+void savetackpositie (void);
+void changetackpositie (void);
+void TackButton (void);
+
+		
+		int main(void) {
+   HAL_Init();
+  SystemClock_Config();
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_CAN_Init();
+  MX_IWDG_Init();
+  MX_RTC_Init();
+  MX_TIM16_Init();
+  MX_TIM17_Init();
+  MX_USART1_UART_Init();
+  MX_USART3_IRDA_Init();
+  MX_I2C2_Init();
+  MX_TIM1_Init();
+  MX_TIM2_Init();
+	MX_ADC_Init();
+
+  // System init	
+  MainInit();
+	// LED On
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+
+	// Set up baudrate
+	hcan.Instance->BTR &= 0xFFFFFC00;
+	hcan.Instance->BTR |= CAN_250K;
+	
+	adcValue = 0;
+  IN1A = 0;
+  /* Infinite loop */
+  C =0;
+	D=0;
+	u8Wr=0x01020304;
+	u8Rd=0;
+
+	/* USER CODE BEGIN WHILE */
+  while (true){
+ 
+	
+		/* USER CODE BEGIN 3 */
+		// =======================================================================
+		// EEPROM sample code
+		// if value at EEPROM address 0x05 greather than 5, the LED will be on otherwise off 
+		// Voltage at IN1 (V) will be stored every 3 s at EEPROM address 0x05 if changed
+		// =======================================================================
+		
+
+		
+		// Store value at EEPROM
+		if ( u16Timer == 0 )
+		{
+			static uint32_t u8WrOld = 0xFFFFFFFF;
+			
+			u16Timer = 500; // every 3 s
+			// Read analog value from IN1 [V]
+			
+			// Write data to EEPROM if changed
+			if (Buttonstate>0){
+				u8Wr = 1;
+			}
+			
+			if ( u8Wr != u8WrOld )
+			{
+				u8WrOld = u8Wr;
+        EEPROM_Write(0x0005, (uint8_t*)&u8Wr, 4);//uint_8t* vertaling van de volital u8wr
+			}
+		}
+		
+			// Read value
+		EEPROM_Read(0x0005, (uint8_t*)&u8Rd, 4);
+		// Test readed value an set LED
+		if ( u8Rd > 5 )
+			HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	  else
+			HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+
+		
+		
+		
+		MotionFlagSBR = actuatorSBRStatus.acturatorFeedbackMessageTypeDef.motionFlag;
+		MotionFlagBBR = actuatorBBRStatus.acturatorFeedbackMessageTypeDef.motionFlag;
+		HuidigePositieSBR = actuatorSBRStatus.acturatorFeedbackMessageTypeDef.measuredPosition;
+		HuidigePositieBBR = actuatorBBRStatus.acturatorFeedbackMessageTypeDef.measuredPosition;
+		runningSpeedSBR=actuatorSBRStatus.acturatorFeedbackMessageTypeDef.runningSpeed;
+			runningSpeedBBR=actuatorBBRStatus.acturatorFeedbackMessageTypeDef.runningSpeed;
+		
+		
+		DMAOK 						= DMAStatus.DMAFeedbackMessageTypeDef.OK01;
+		DMAbuttons = DMAStatus.DMAFeedbackMessageTypeDef.Up40Down80Esc20;
+		Buttonstate = mainReadButtons();
+	
+	 
+
+		
+		
+		
+	if (u16Timer == 0){										//CANVERZENDEN
+				u16Timer = 20;
+				//HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+		
+	
+				CANzenderBBR();
+				CANzenderSBR();
+				CANzenderDIS();
+			//	CANzenderBBM();
+			//	CANzenderSBM();
+	
+		
+	MoveSBR=0;
+			MoveBBR=0;
+			MoveSBM=0;
+			MoveBBM=0;
+		
+		
+	}
+
+			
+		savetackpositie();
+		changetackpositie();
+		Buttons();
+		TackButton();
+		if ((u1Timer == 0)&&(SBR==1)){										//CANVERZENDEN
+				u1Timer = 500;
+			SpeedSBR+=1;
+			if (SpeedSBR<5){
+			SpeedSBR=5;}
+			if (SpeedSBR>20){
+			SpeedSBR=20;}
+		}
+		if (SBR==0){
+			SpeedSBR=0;}
+
+	SpeedBBR=20;
+}
+	
+	
+	// Watchdog refresh, see file main.h:70
+		#if ( PRODUCTION_VERSION == 1 )
+		  HAL_IWDG_Refresh(&hiwdg);
+			#warning Production version, Debugging not possible! <<<<<<<<<<<<<<<<<<<<<
+		#else
+			#warning Debug version without watch dog! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+		#endif		
+  
+  /* USER CODE END 3 */
+		}
+	
+			void TackButton (void){		
+if (A==1){
+	
+	PositionBBR= TackPositieBBR;
+		PositionSBR= TackPositieSBR;
+		PositionBBM= TackPositieBBM;
+		PositionSBM= TackPositieSBM;
+			MoveSBR=1;
+			MoveBBR=1;
+			MoveSBM=1;
+			MoveBBM=1;
+
+	if ((Buttonstate != IN1) && (MotionFlagSBR==0) &&( MotionFlagBBR==0) &&(MotionFlagSBM ==0 )&& (MotionFlagSBM==0)){
+		
+		A=0;
+		
+	}
+}}
+
+	void changetackpositie (void)
+	{
+	
+	if (Buttonstate != IN1){
+		B=0;
+		}
+	if (((Buttonstate == IN1))&&(B==0)){
+		tacksaveR= TackPositieSBR;
+		TackPositieSBR= TackPositieBBR;
+		TackPositieBBR = tacksaveR;
+		
+		tacksaveM= TackPositieSBM;
+		TackPositieSBM= TackPositieBBM;
+		TackPositieBBM = tacksaveM;
+		
+		B=1;
+		A=1;
+	}
+}
+	
+	
+		void savetackpositie (void){
+		
+		if ((SBR==1)&&(MotionFlagSBR ==0)){//READTACKPOSITION SBR
+			TackPositieSBR = HuidigePositieSBR;
+				SBR =0;
+		}
+		if ((BBR==1)&&(MotionFlagBBR ==0)){//READTACKPOSITION BBR
+			TackPositieBBR = HuidigePositieBBR;
+				BBR =0;
+			
+		}
+		if ((SBM==1)&&(MotionFlagSBM ==0)){//READTACKPOSITION SBR
+			TackPositieSBM = HuidigePositieSBM;
+				SBM =0;
+		}
+		if ((BBR==1)&&(MotionFlagBBR ==0)){//READTACKPOSITION BBR
+			TackPositieBBM = HuidigePositieBBM;
+				BBM =0;
+			
+		}
+		}
+	void Buttons (void){
+
+if (Buttonstate & IN2){								//SBR+
+				PositionSBR=1000;
+				MoveSBR=1;
+				SBR=1;
+				A=0;
+		}
+
+	
+		if (Buttonstate & IN3){								//SBR-
+				PositionSBR=0;
+				MoveSBR=1;
+				SBR=1;
+				A=0;
+		}
+		if ((Buttonstate & IN4)||(DMAbuttons==0x40)){								//BBR+
+				PositionBBR=1000;
+				MoveBBR=1;
+				BBR=1;
+				A=0;
+		}
+		
+		if ((Buttonstate & IN5)||(DMAbuttons==0x80)){								//BBR-
+				PositionBBR=0;
+				MoveBBR=1;	
+				BBR=1;
+				A=0;
+		}
+		
+		if (Buttonstate & IN6){								//SBM+
+				PositionSBM=1000;
+				MoveSBM=1;
+				SBM=1;
+				A=0;
+		}
+		
+		if (Buttonstate & IN7){								//SBM-
+				PositionSBM=0;
+				MoveSBM=1;	
+				SBM=1;
+				A=0;
+		}
+		
+		if (Buttonstate & IN8){								//BBM+
+				PositionBBM=1000;
+				MoveBBM=1;
+				BBM=1;
+				A=0;
+		}
+		if (Buttonstate & IN9){								//BBM-
+				PositionBBM=0;
+				MoveBBM=1;	
+				BBM=1;
+				A=0;
+		}
+	}
+
+
+
+
+
+uint32_t mainReadButtons(void) {//BUTTONREAD
+uint32_t Buttonstate = 0;
+	
+	Buttonstate |= (ReadAnalogInput(ADC_IN1) > 5000) ? (1) : 0;
+	Buttonstate |= (ReadAnalogInput(ADC_IN2) > 5000) ? (1 << 1) : 0;
+	Buttonstate |= (ReadAnalogInput(ADC_IN3) > 5000) ? (1 << 2) : 0;
+	Buttonstate |= (ReadAnalogInput(ADC_IN4) > 5000) ? (1 << 3) : 0;
+	Buttonstate |= (ReadAnalogInput(ADC_IN5) > 5000) ? (1 << 4) : 0;
+	Buttonstate |= (ReadAnalogInput(ADC_IN6) > 5000) ? (1 << 5) : 0;
+	Buttonstate |= (HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_12) << 6);
+	Buttonstate |= (HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_15) << 7);
+	Buttonstate |= (HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_4) << 8);
+	Buttonstate |= (HAL_GPIO_ReadPin(GPIOB,GPIO_PIN_5) << 9);
+
+	return Buttonstate;
+} 
+
+actuatorControlMessageTypeDef sendFeedbackSB(void) {
+	actuatorControlMessageTypeDef FeedbackCan;
+	
+	FeedbackCan.actuatorControlMessageTypeDef.positionCommand = PositionSBR ;
+	FeedbackCan.actuatorControlMessageTypeDef.currentLimit = 200;
+	FeedbackCan.actuatorControlMessageTypeDef.speedCommand = 20;//SpeedSBR ;
+	FeedbackCan.actuatorControlMessageTypeDef.motionEnable = MoveSBR;
+	
+	
+	return FeedbackCan;
+}
+	actuatorControlMessageTypeDef sendFeedbackBB(void) {
+	actuatorControlMessageTypeDef FeedbackCan;
+	
+	FeedbackCan.actuatorControlMessageTypeDef.positionCommand = PositionBBR ;
+	FeedbackCan.actuatorControlMessageTypeDef.currentLimit = 200;
+	FeedbackCan.actuatorControlMessageTypeDef.speedCommand = SpeedBBR ;
+	FeedbackCan.actuatorControlMessageTypeDef.motionEnable = MoveBBR;
+	
+	
+	return FeedbackCan;
+}
+	
+
+DMA20ControlMessageTypeDef sendFeedbackDIS(void) {
+	DMA20ControlMessageTypeDef FeedbackCan;
+	
+	FeedbackCan.DMA20ControlMessageTypeDef.Template = 0x01 ;
+	FeedbackCan.DMA20ControlMessageTypeDef.Parameter0 = 0x02;
+	
+	FeedbackCan.DMA20ControlMessageTypeDef.Parameter1 = HuidigePositieSBR;
+FeedbackCan.DMA20ControlMessageTypeDef.Parameter2= 0x000;
+	FeedbackCan.DMA20ControlMessageTypeDef.Parameter5 = 7;
+		FeedbackCan.DMA20ControlMessageTypeDef.Parameter6 = 0xff;
+	return FeedbackCan;
+	}
+		 
+		void CANzenderSBR(void)  {
+static J1939IDTypeDefine J1939ID;
+			static CANMessagePackageType CANTXMessage;
+			uint8_t u8I;
+			
+			actuatorControlMessageTypeDef messageHolder = sendFeedbackSB();
+			//uint32_t messageHolder[2] = {0 | (200 << 14) | (1 << (9+14)) | (true << (14+9+5)),0};
+	
+			memcpy(&CANTXMessage,&messageHolder,8);
+			
+			// Fill CAN-ID
+			J1939ID.J1939IDTypeDefine.Priority = 4;
+				
+	J1939ID.J1939IDTypeDefine.ParameterGoupNumber = 0x00EF00 + 0x14 ; //ontvanger id
+	
+			J1939ID.J1939IDTypeDefine.SourceAddres = 0xff;
+			
+			// Fill header 
+			hcan.pTxMsg->IDE = CAN_ID_EXT;
+			hcan.pTxMsg->ExtId = J1939ID.ID;
+			hcan.pTxMsg->DLC = 8;  // datalengte 
+			// Transfer data
+			for ( u8I=0; u8I<8; u8I++ )
+				hcan.pTxMsg->Data[u8I] = CANTXMessage.u8[u8I];
+			// Send it by CAN
+			
+HAL_CAN_Transmit(&hcan, 1000);}
+
+void CANzenderBBR(void)  {
+static J1939IDTypeDefine J1939ID;
+			static CANMessagePackageType CANTXMessage;
+			uint8_t u8I;
+			
+			actuatorControlMessageTypeDef messageHolder = sendFeedbackBB();
+			//uint32_t messageHolder[2] = {0 | (200 << 14) | (1 << (9+14)) | (true << (14+9+5)),0};
+	
+			memcpy(&CANTXMessage,&messageHolder,8);
+			
+			// Fill CAN-ID
+			J1939ID.J1939IDTypeDefine.Priority = 4;
+				
+	J1939ID.J1939IDTypeDefine.ParameterGoupNumber = 0x00EF00 + 0x15 ; //ontvanger id
+	
+			J1939ID.J1939IDTypeDefine.SourceAddres = 0xff;
+			
+			// Fill header 
+			hcan.pTxMsg->IDE = CAN_ID_EXT;
+			hcan.pTxMsg->ExtId = J1939ID.ID;
+			hcan.pTxMsg->DLC = 8;  // datalengte 
+			// Transfer data
+			for ( u8I=0; u8I<8; u8I++ )
+				hcan.pTxMsg->Data[u8I] = CANTXMessage.u8[u8I];
+			// Send it by CAN
+			
+HAL_CAN_Transmit(&hcan, 1000);}
+
+
+void CANzenderDIS(void)  {
+static J1939IDDISTypeDefine J1939IDDIS;
+			static CANMessagePackageType CANTXMessage;
+			uint8_t u8I;
+			
+			DMA20ControlMessageTypeDef messageHolder = sendFeedbackDIS();
+			//uint32_t messageHolder[2] = {0 | (200 << 14) | (1 << (9+14)) | (true << (14+9+5)),0};
+	
+			memcpy(&CANTXMessage,&messageHolder,8);
+			
+			// Fill CAN-ID
+			J1939IDDIS.J1939IDDISTypeDefine.CanIDDIS = 0x7FD;
+				
+	
+			
+			// Fill header 
+			hcan.pTxMsg->IDE = CAN_ID_EXT;
+			hcan.pTxMsg->ExtId = J1939IDDIS.IDDIS;
+			hcan.pTxMsg->DLC = 8;  // datalengte 
+			// Transfer data
+			for ( u8I=0; u8I<8; u8I++ )
+				hcan.pTxMsg->Data[u8I] = CANTXMessage.u8[u8I];
+			// Send it by CAN
+			
+HAL_CAN_Transmit(&hcan, 10);}
+
+void HAL_CAN_RxCpltCallback(CAN_HandleTypeDef* hcan) {
+	// Implement CAN RX
+	if(hcan->pRxMsg->IDE == CAN_ID_EXT ) {
+		switch ( hcan->pRxMsg->ExtId ){
+			case 0x19EFFF14:
+				memcpy((void *)&actuatorSBRStatus,hcan->pRxMsg->Data,8);
+			
+			break;
+			case 0x19EFFF15:
+				memcpy((void *)&actuatorBBRStatus,hcan->pRxMsg->Data,8);
+			break;
+			}
+		
+		}
+			
+			
+	
+	__HAL_CAN_ENABLE_IT(hcan, CAN_IT_FMP0);
+
+}
+void HAL_SYSTICK_Callback(void) {
+  if ( u16Timer > 0 )
+		u16Timer--;
+}
+
+void SystemClock_Config(void){
+
+  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_ClkInitTypeDef RCC_ClkInitStruct;
+  RCC_PeriphCLKInitTypeDef PeriphClkInit;
+
+    /**Initializes the CPU, AHB and APB busses clocks 
+    */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI14|RCC_OSCILLATORTYPE_LSI
+                              |RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSI14State = RCC_HSI14_ON;
+  RCC_OscInitStruct.HSI14CalibrationValue = 16;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+    /**Initializes the CPU, AHB and APB busses clocks 
+    */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSE;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART3|RCC_PERIPHCLK_USART1
+                              |RCC_PERIPHCLK_RTC;
+  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
+  PeriphClkInit.Usart3ClockSelection = RCC_USART3CLKSOURCE_PCLK1;
+  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_HSE_DIV32;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+    /**Configure the Systick interrupt time 
+    */
+  HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
+
+    /**Configure the Systick 
+    */
+  HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+
+  /* SysTick_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
+}
+
+void Error_Handler(void){
+  /* USER CODE BEGIN Error_Handler */
+  /* User can add his own implementation to report the HAL error return state */
+  while(1) {} ;
+}
